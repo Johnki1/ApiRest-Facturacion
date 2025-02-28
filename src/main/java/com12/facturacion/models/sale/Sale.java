@@ -39,5 +39,20 @@ public class Sale {
 
     @Enumerated(EnumType.STRING)
     private StatusSale status;
-}
 
+    @Column(name = "discount", nullable = false, columnDefinition = "DECIMAL(10,2) default 0.00")
+    private BigDecimal discount = BigDecimal.ZERO;
+
+    @Column(name = "sale_detail")
+    private String saleDetail;
+
+    @PrePersist
+    protected void onCreate() {
+        if (discount == null) {
+            discount = BigDecimal.ZERO;
+        }
+        if (date == null) {
+            date = LocalDateTime.now();
+        }
+    }
+}

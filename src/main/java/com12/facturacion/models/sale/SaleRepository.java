@@ -14,7 +14,5 @@ import java.util.List;
 public interface SaleRepository extends JpaRepository<Sale, Long> {
     List<Sale> findByUserAndDateBetween(User user, LocalDateTime inicio, LocalDateTime fin);
     List<Sale> findByDateBetween(LocalDateTime inicio, LocalDateTime fin);
-    List<Sale> findByTable(Table table);
-
     List<Sale> findByDateBetweenAndStatus(LocalDateTime start, LocalDateTime end, StatusSale statusSale);
 }

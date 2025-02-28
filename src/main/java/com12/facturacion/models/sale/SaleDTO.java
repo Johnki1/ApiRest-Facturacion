@@ -13,6 +13,8 @@ public record SaleDTO(
         LocalDateTime date,
         BigDecimal total,
         StatusSale status,
+        BigDecimal discount,
+        String saleDetail,
         List<SaleDetailDTO> detail
 ) {
 }

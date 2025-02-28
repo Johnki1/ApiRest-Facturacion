@@ -1,8 +1,8 @@
 package com12.facturacion.models.sale;
 
 import com12.facturacion.infra.erros.ResourceNotFoundException;
-import com12.facturacion.models.product.ProductRepository;
 import com12.facturacion.models.product.Product;
+import com12.facturacion.models.product.ProductRepository;
 import com12.facturacion.models.saledetail.SaleDetail;
 import com12.facturacion.models.saledetail.SaleDetailDTO;
 import com12.facturacion.models.saledetail.SaleDetailRepository;
@@ -11,7 +11,6 @@ import com12.facturacion.models.table.Table;
 import com12.facturacion.models.table.TableRepository;
 import com12.facturacion.models.user.User;
 import com12.facturacion.models.user.UserRepository;
-import java.math.BigDecimal;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
@@ -24,6 +23,7 @@ import java.util.stream.Collectors;
 
 @Service
 public class SaleService {
+
     private final SaleRepository ventaRepository;
     private final TableRepository mesaRepository;
     private final ProductRepository productoRepository;
@@ -31,7 +31,9 @@ public class SaleService {
     private final SaleDetailRepository detalleVentaRepository;
 
     @Autowired
-    public SaleService(SaleRepository ventaRepository, TableRepository mesaRepository, ProductRepository productoRepository, UserRepository usuarioRepository, SaleDetailRepository detalleVentaRepository) {
+    public SaleService(SaleRepository ventaRepository, TableRepository mesaRepository,
+                       ProductRepository productoRepository, UserRepository usuarioRepository,
+                       SaleDetailRepository detalleVentaRepository) {
         this.ventaRepository = ventaRepository;
         this.mesaRepository = mesaRepository;
         this.productoRepository = productoRepository;
@@ -61,24 +63,26 @@ public class SaleService {
         sale.setTable(table);
         sale.setDate(LocalDateTime.now());
         sale.setStatus(StatusSale.PENDIENTE);
+        sale.setDiscount(request.discount() != null ? request.discount() : BigDecimal.ZERO);
+        sale.setSaleDetail(request.saleDetail());
 
         Sale finalSale = sale;
         List<SaleDetail> detalles = request.detail().stream()
                 .map(detalleDTO -> crearDetalleVenta(detalleDTO, finalSale))
                 .collect(Collectors.toList());
 
-        BigDecimal totalVenta = calcularTotal(detalles);
+        sale.setDetails(detalles);
 
-        sale.setTotal(totalVenta);
+        BigDecimal totalParcial = calcularTotal(detalles);
+        BigDecimal totalConDescuento = totalParcial.subtract(sale.getDiscount());
+        sale.setTotal(totalConDescuento);
+
         sale = ventaRepository.save(sale);
-
-        detalleVentaRepository.saveAll(detalles);
         table.setEstado(StatusTable.OCUPADA);
         mesaRepository.save(table);
 
         return convertToDTO(sale);
     }
-
 
     @Transactional
     public SaleDTO completarVenta(Long ventaId) {
@@ -90,14 +94,98 @@ public class SaleService {
         }
 
         venta.setStatus(StatusSale.COMPLETADA);
-
         Table mesa = venta.getTable();
         mesa.setEstado(StatusTable.LIBRE);
         mesaRepository.save(mesa);
 
         venta.getDetails().forEach(this::actualizarStock);
-
         return convertToDTO(ventaRepository.save(venta));
+    }
+
+    @Transactional
+    public SaleDTO agregarProductos(Long saleId, AgregarProductoDTO request) {
+        Sale sale = ventaRepository.findById(saleId)
+                .orElseThrow(() -> new ResourceNotFoundException("Venta no encontrada"));
+
+        if (sale.getStatus() != StatusSale.PENDIENTE) {
+            throw new IllegalStateException("Solo se pueden agregar productos a ventas pendientes");
+        }
+
+        Sale finalSale = sale;
+        List<SaleDetail> nuevosDetalles = request.detail().stream()
+                .map(detalle -> {
+                    Product product = productoRepository.findById(detalle.productoId())
+                            .orElseThrow(() -> new ResourceNotFoundException("Producto no encontrado"));
+                    SaleDetail sd = new SaleDetail();
+                    sd.setSale(finalSale);
+                    sd.setProduct(product);
+                    sd.setCantidad(detalle.cantidad());
+                    sd.setPrecioUnitario(product.getPrice());
+                    sd.setSubtotal(product.getPrice().multiply(BigDecimal.valueOf(detalle.cantidad())));
+                    return sd;
+                })
+                .collect(Collectors.toList());
+
+        sale.getDetails().addAll(nuevosDetalles);
+        detalleVentaRepository.saveAll(nuevosDetalles);
+
+        BigDecimal totalParcial = calcularTotal(sale.getDetails());
+        BigDecimal totalConDescuento = totalParcial.subtract(sale.getDiscount());
+        sale.setTotal(totalConDescuento);
+
+        sale = ventaRepository.save(sale);
+        return convertToDTO(sale);
+    }
+
+    @Transactional
+    public SaleDTO eliminarProductoDeVenta(Long saleId, Long productoId) {
+        Sale sale = ventaRepository.findById(saleId)
+                .orElseThrow(() -> new ResourceNotFoundException("Venta no encontrada"));
+
+        if (sale.getStatus() != StatusSale.PENDIENTE) {
+            throw new IllegalStateException("Solo se pueden eliminar productos de ventas pendientes");
+        }
+
+        SaleDetail detalle = sale.getDetails().stream()
+                .filter(d -> d.getProduct().getId().equals(productoId))
+                .findFirst()
+                .orElseThrow(() -> new ResourceNotFoundException("Producto no encontrado en la venta"));
+
+
+        if (detalle.getCantidad() > 1) {
+            detalle.setCantidad(detalle.getCantidad() - 1);
+            detalle.setSubtotal(detalle.getPrecioUnitario().multiply(BigDecimal.valueOf(detalle.getCantidad())));
+            detalleVentaRepository.save(detalle);
+        } else {
+            sale.getDetails().remove(detalle);
+            detalleVentaRepository.delete(detalle);
+        }
+
+        BigDecimal totalParcial = calcularTotal(sale.getDetails());
+        BigDecimal totalConDescuento = totalParcial.subtract(sale.getDiscount());
+        sale.setTotal(totalConDescuento);
+        sale = ventaRepository.save(sale);
+        return convertToDTO(sale);
+    }
+
+    @Transactional
+    public SaleDTO actualizarDescuentoYDetalle(Long saleId, BigDecimal discount, String saleDetail) {
+        Sale sale = ventaRepository.findById(saleId)
+                .orElseThrow(() -> new ResourceNotFoundException("Venta no encontrada"));
+
+        if (sale.getStatus() != StatusSale.PENDIENTE) {
+            throw new IllegalStateException("Solo se pueden modificar ventas pendientes");
+        }
+
+        sale.setDiscount(discount != null ? discount : BigDecimal.ZERO);
+        sale.setSaleDetail(saleDetail);
+
+        BigDecimal totalParcial = calcularTotal(sale.getDetails());
+        BigDecimal totalConDescuento = totalParcial.subtract(sale.getDiscount());
+        sale.setTotal(totalConDescuento);
+
+        sale = ventaRepository.save(sale);
+        return convertToDTO(sale);
     }
 
     private void actualizarStock(SaleDetail detalle) {
@@ -110,18 +198,16 @@ public class SaleService {
         productoRepository.save(product);
     }
 
-    private SaleDetail crearDetalleVenta(SaleDetailDTO detalle, Sale venta) {
-        Product product = productoRepository.findById(detalle.productoId())
+    private SaleDetail crearDetalleVenta(SaleDetailDTO detalleDTO, Sale venta) {
+        Product product = productoRepository.findById(detalleDTO.productoId())
                 .orElseThrow(() -> new ResourceNotFoundException("Producto no encontrado"));
-
-        SaleDetail detalleVenta = new SaleDetail();
-        detalleVenta.setSale(venta);
-        detalleVenta.setProduct(product);
-        detalleVenta.setCantidad(detalle.cantidad());
-        detalleVenta.setPrecioUnitario(product.getPrice());
-        detalleVenta.setSubtotal(product.getPrice().multiply(BigDecimal.valueOf(detalle.cantidad())));
-
-        return detalleVenta;
+        SaleDetail detalle = new SaleDetail();
+        detalle.setSale(venta);
+        detalle.setProduct(product);
+        detalle.setCantidad(detalleDTO.cantidad());
+        detalle.setPrecioUnitario(product.getPrice());
+        detalle.setSubtotal(product.getPrice().multiply(BigDecimal.valueOf(detalleDTO.cantidad())));
+        return detalle;
     }
 
     private BigDecimal calcularTotal(List<SaleDetail> detalles) {
@@ -132,7 +218,11 @@ public class SaleService {
 
     private SaleDTO convertToDTO(Sale venta) {
         List<SaleDetailDTO> detallesDTO = venta.getDetails().stream()
-                .map(this::convertDetalleToDTO)
+                .map(d -> new SaleDetailDTO(
+                        d.getProduct().getId(),
+                        d.getCantidad(),
+                        d.getPrecioUnitario(),
+                        d.getSubtotal()))
                 .collect(Collectors.toList());
 
         return new SaleDTO(
@@ -142,19 +232,11 @@ public class SaleService {
                 venta.getDate(),
                 venta.getTotal(),
                 venta.getStatus(),
+                venta.getDiscount(),
+                venta.getSaleDetail(),
                 detallesDTO
         );
     }
-
-    private SaleDetailDTO convertDetalleToDTO(SaleDetail detalle) {
-        return new SaleDetailDTO(
-                detalle.getProduct() != null ? detalle.getProduct().getId() : null,
-                detalle.getCantidad(),
-                detalle.getPrecioUnitario(),
-                detalle.getSubtotal()
-        );
-    }
-
 
     public List<SaleDTO> obtenerVentasPorFecha(LocalDateTime inicio, LocalDateTime fin) {
         return ventaRepository.findByDateBetween(inicio, fin)
@@ -167,70 +249,9 @@ public class SaleService {
         String username = SecurityContextHolder.getContext().getAuthentication().getName();
         User usuario = usuarioRepository.findUsername(username)
                 .orElseThrow(() -> new ResourceNotFoundException("Usuario no encontrado"));
-
         return ventaRepository.findByUserAndDateBetween(usuario, inicio, fin)
                 .stream()
                 .map(this::convertToDTO)
                 .collect(Collectors.toList());
-    }
-
-    @Transactional
-    public SaleDTO agregarProductos(Long saleId, AgregarProductoDTO request) {
-        // Buscar la venta existente
-        Sale sale = ventaRepository.findById(saleId)
-                .orElseThrow(() -> new ResourceNotFoundException("Venta no encontrada"));
-
-        // Para cada nuevo detalle en la petición, se crea un SaleDetail
-        Sale finalSale = sale;
-        List<SaleDetail> nuevosDetalles = request.detail().stream()
-                .map(nuevoDetalle -> {
-                    Product product = productoRepository.findById(nuevoDetalle.productoId())
-                            .orElseThrow(() -> new ResourceNotFoundException("Producto no encontrado"));
-                    SaleDetail detalle = new SaleDetail();
-                    detalle.setSale(finalSale);
-                    detalle.setProduct(product);
-                    detalle.setCantidad(nuevoDetalle.cantidad());
-                    detalle.setPrecioUnitario(product.getPrice());
-                    detalle.setSubtotal(
-                            BigDecimal.valueOf(nuevoDetalle.cantidad()).multiply(product.getPrice())
-                    );
-                    return detalle;
-                })
-                .collect(Collectors.toList());
-
-        sale.getDetails().addAll(nuevosDetalles);
-
-        detalleVentaRepository.saveAll(nuevosDetalles);
-
-        BigDecimal nuevoTotal = sale.getDetails().stream()
-                .map(SaleDetail::getSubtotal)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-        sale.setTotal(nuevoTotal);
-
-        sale = ventaRepository.save(sale);
-
-        return convertToDTO(sale);
-    }
-
-    @Transactional
-    public SaleDTO eliminarProductoDeVenta(Long saleId, Long productoId) {
-        Sale sale = ventaRepository.findById(saleId)
-                .orElseThrow(() -> new ResourceNotFoundException("Venta no encontrada"));
-
-        SaleDetail detalleAEliminar = sale.getDetails().stream()
-                .filter(detail -> detail.getProduct().getId().equals(productoId))
-                .findFirst()
-                .orElseThrow(() -> new ResourceNotFoundException("Producto no encontrado en la venta"));
-
-        sale.getDetails().remove(detalleAEliminar);
-
-        BigDecimal nuevoTotal = sale.getDetails().stream()
-                .map(SaleDetail::getSubtotal)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-        sale.setTotal(nuevoTotal);
-
-        sale = ventaRepository.save(sale);
-
-        return convertToDTO(sale);
     }
 }

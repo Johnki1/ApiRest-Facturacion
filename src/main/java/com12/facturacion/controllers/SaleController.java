@@ -8,6 +8,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -31,8 +32,7 @@ public class SaleController {
     @GetMapping("/usuario")
     public ResponseEntity<List<SaleDTO>> obtenerVentasUsuario(
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime inicio,
-            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime fin
-    ) {
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime fin) {
         return ResponseEntity.ok(saleService.obtenerVentasUsuario(inicio, fin));
     }
 
@@ -40,22 +40,25 @@ public class SaleController {
     @PreAuthorize("hasRole('ADMINISTRADOR')")
     public ResponseEntity<List<SaleDTO>> obtenerVentasPorFecha(
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime inicio,
-            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime fin
-    ) {
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime fin) {
         return ResponseEntity.ok(saleService.obtenerVentasPorFecha(inicio, fin));
     }
 
     @PutMapping("/{id}/agregarProductos")
     public ResponseEntity<SaleDTO> agregarProductos(@PathVariable Long id,
                                                     @RequestBody @Valid AgregarProductoDTO request) {
-        SaleDTO saleActualizada = saleService.agregarProductos(id, request);
-        return ResponseEntity.ok(saleActualizada);
+        return ResponseEntity.ok(saleService.agregarProductos(id, request));
     }
 
     @DeleteMapping("/{saleId}/producto/{productoId}")
-    public ResponseEntity<SaleDTO> eliminarProductoDeVenta(@PathVariable Long saleId, @PathVariable Long productoId) {
-        SaleDTO ventaActualizada = saleService.eliminarProductoDeVenta(saleId, productoId);
-        return ResponseEntity.ok(ventaActualizada);
+    public ResponseEntity<SaleDTO> eliminarProductoDeVenta(@PathVariable Long saleId,
+                                                           @PathVariable Long productoId) {
+        return ResponseEntity.ok(saleService.eliminarProductoDeVenta(saleId, productoId));
     }
 
+    @PutMapping("/{id}/actualizar")
+    public ResponseEntity<SaleDTO> actualizarDescuentoYDetalle(@PathVariable Long id,
+                                                               @RequestBody @Valid SaleUpdateRequest request) {
+        return ResponseEntity.ok(saleService.actualizarDescuentoYDetalle(id, request.discount(), request.saleDetail()));
+    }
 }
