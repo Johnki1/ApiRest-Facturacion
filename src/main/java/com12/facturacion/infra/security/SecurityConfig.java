@@ -65,7 +65,7 @@ public class SecurityConfig {
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
         configuration.setAllowCredentials(true);
-        configuration.addAllowedOrigin("https://unoigualados.up.railway.app");
+        configuration.addAllowedOrigin("https://unoigualados.up.railway.app/");
         configuration.addAllowedHeader("*");
         configuration.addAllowedMethod("*");
 
