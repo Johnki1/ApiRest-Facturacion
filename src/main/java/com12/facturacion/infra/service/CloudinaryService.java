@@ -16,6 +16,7 @@ public class CloudinaryService {
 
     public CloudinaryService(@Value("${cloudinary.url}") String cloudinaryUrl) {
         this.cloudinary = new Cloudinary(cloudinaryUrl);
+        this.cloudinary.config.secure = true;
     }
 
     public String uploadImage(MultipartFile image) {
@@ -30,7 +31,7 @@ public class CloudinaryService {
     public String getImageUrl(String publicId) {
         try {
             Map<String, Object> resource = cloudinary.api().resource(publicId, ObjectUtils.emptyMap());
-            return (String) resource.get("url");
+            return (String) resource.get("secure_url");
         } catch (IOException e) {
             throw new RuntimeException("Error al obtener la imagen desde Cloudinary", e);
         } catch (Exception e) {
