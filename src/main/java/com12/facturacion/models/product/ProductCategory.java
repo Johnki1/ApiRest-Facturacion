@@ -4,5 +4,5 @@ public enum ProductCategory {
     CALIENTE,
     FRIO,
     ADICIONES,
-    BEBIDAS
+    BEBIDAs
 }
